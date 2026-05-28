@@ -9,6 +9,7 @@ load_dotenv()
 app = Flask(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# ✅ 서버 시작 시 PDF 1회만 읽기 (매 요청마다 읽지 않음)
 def read_pdf_texts(docs_folder="docs"):
     texts = []
     try:
@@ -19,19 +20,23 @@ def read_pdf_texts(docs_folder="docs"):
             for page in doc:
                 text += page.get_text()
             if text.strip():
-                texts.append({"file": os.path.basename(pdf_path), "text": text[:3000]})
+                texts.append({"file": os.path.basename(pdf_path), "text": text[:2000]})
             doc.close()
     except Exception as e:
         print(f"PDF 읽기 오류: {e}")
     return texts
 
-def get_ai_answer(question):
+# ✅ 서버 시작 시 PDF 미리 로딩
+PDF_CONTEXT = ""
+try:
     pdf_texts = read_pdf_texts("docs")
-    
-    context = ""
     for pdf in pdf_texts[:3]:
-        context += f"\n[{pdf['file']}]\n{pdf['text']}\n"
+        PDF_CONTEXT += f"\n[{pdf['file']}]\n{pdf['text']}\n"
+    print(f"✅ PDF {len(pdf_texts)}개 로딩 완료")
+except Exception as e:
+    print(f"PDF 로딩 오류: {e}")
 
+def get_ai_answer(question):
     system_prompt = """당신은 평택지역자활센터의 전문 상담 챗봇입니다.
 국민기초생활보장제도와 자활사업에 대해 친절하고 정확하게 안내합니다.
 
@@ -39,15 +44,15 @@ def get_ai_answer(question):
 1. 제공된 문서 내용을 최대한 활용하여 구체적으로 답변하세요
 2. 신청자격, 절차, 필요서류 등을 구체적으로 안내하세요
 3. 모르는 내용은 "평택지역자활센터(031-000-0000)로 문의해 주세요"라고 안내하세요
-4. 답변은 5~8문장으로 구체적으로 작성하세요
+4. 답변은 3~5문장으로 간결하게 작성하세요
 5. 친근하고 따뜻한 말투를 사용하세요"""
 
     user_message = f"""질문: {question}
 
 참고 문서:
-{context}
+{PDF_CONTEXT}
 
-위 문서를 참고하여 구체적으로 답변해주세요."""
+위 문서를 참고하여 답변해주세요."""
 
     try:
         response = client.chat.completions.create(
@@ -56,7 +61,7 @@ def get_ai_answer(question):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=800,
+            max_tokens=400,  # ✅ 800 → 400으로 줄임
             temperature=0.7
         )
         return response.choices[0].message.content
